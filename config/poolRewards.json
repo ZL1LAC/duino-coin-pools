@@ -5,12 +5,6 @@
         "max_hashrate": 999999999,
         "kolka_decrease_perc": 80
     },
-    "XXHASH": {
-        "difficulty": 100000,
-        "reward": 0.0003,
-        "max_hashrate": 900000,
-        "kolka_decrease_perc": 80
-    },
     "NET": {
         "difficulty": 100000,
         "reward": 0.0015811,
