@@ -9,8 +9,10 @@ const handle = require("./connectionHandler");
 const sync = require("./sync");
 const { spawn } = require("child_process");
 const log = require("./logging");
+const poolStats = require("./poolStats");
 let { use_ngrok, port, host, autoRestart, guessPort, use_serveo } = require("../config/config.json");
 
+poolStats.startedAt = Date.now();
 connections = 0;
 
 const getRand = (min, max) => {
@@ -65,7 +67,7 @@ if (use_ngrok) {
 sync.updatePoolReward();
 sync.login();
 
-// require("./dashboard");
+require("./dashboard");
 
 const server = net.createServer(handle);
 server.listen(port, host, 0, () => {
@@ -94,6 +96,7 @@ setInterval(() => {
     server.getConnections((error, count) => {
         if (!error) {
             connections = count;
+            poolStats.connections = count;
             log.info(`Connected clients: ${count}`);
         }
     });

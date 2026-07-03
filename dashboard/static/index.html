@@ -6,11 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://jenil.github.io/bulmaswatch/superhero/bulmaswatch.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.12.1/js/all.min.js" integrity="sha256-MAgcygDRahs+F/Nk5Vz387whB4kSK9NXlDN3w58LLq0=" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="/script.js" defer></script>
-    <title>Pulse Pool Stats</title>
-    <link rel="icon" href="logo.png" type="image/png" />
-    <link rel="shortcut icon" href="logo.png" type="image/png" />
-    <link rel="stylesheet" href="styles.css" />
+    <title>Pool Dashboard</title>
+    <link rel="stylesheet" href="/styles.css" />
 </head>
 
 <body>
@@ -21,89 +20,178 @@
                 <div class="box has-text-centered">
                     <p class="subtitle is-size-6">Welcome to</p>
                     <p class="title is-size-2 gradient-logo">
-                        <img src="logo.png" class="icon is-normal">
-                        Pulse Pool
+                        <i class="fa fa-fw fa-server"></i>
+                        <span id="pool-name">Duino-Coin Pool</span>
                     </p>
-                    <p class="subtitle">
-                        a
-                        <a href="https://duinocoin.com" class="has-text-warning">
-                            <b>Duino-Coin</b>
-                        </a>
-                        mining node 👋
+                    <p class="subtitle" id="pool-motd">
+                        <span id="pool-motd-text">a Duino-Coin mining node</span>
+                        ·
+                        <a href="https://duinocoin.com" class="has-text-warning"><b>duinocoin.com</b></a>
                     </p>
                 </div>
+
                 <div class="box">
                     <p class="title">
                         <i class="fa fa-fw fa-info-circle"></i>
                         Node statistics
                     </p>
-                    <div class="columns has-text-centered">
-                        <div class="column">
+                    <div class="columns has-text-centered is-multiline">
+                        <div class="column is-half-tablet is-one-third-desktop">
                             <p class="subtitle">
                                 <i class="fa fa-fw fa-wifi"></i>
                                 Connections:
-                                <b id="connections" class="has-text-warning">
-                                    0
-                                </b>
+                                <b id="connections" class="has-text-warning">0</b>
                             </p>
                         </div>
-                        <div class="column">
+                        <div class="column is-half-tablet is-one-third-desktop">
                             <p class="subtitle">
                                 <i class="fa fa-fw fa-microchip"></i>
-                                CPU usage:
-                                <b id="cpu" class="has-text-success">
-                                    0%
-                                </b>
+                                CPU:
+                                <b id="cpu" class="has-text-success">0%</b>
                             </p>
                         </div>
-                        <div class="column">
+                        <div class="column is-half-tablet is-one-third-desktop">
                             <p class="subtitle">
                                 <i class="fa fa-fw fa-memory"></i>
-                                RAM usage:
-                                <b id="ram" class="has-text-success">
-                                    0%
-                                </b>
+                                RAM:
+                                <b id="ram" class="has-text-success">0%</b>
                             </p>
                         </div>
-                        <div class="column">
+                        <div class="column is-half-tablet is-one-third-desktop">
                             <p class="subtitle">
                                 <i class="fa fa-fw fa-users"></i>
                                 Workers:
-                                <a href="/workers" class="has-text-info">
-                                    <b>workers.json</b>
-                                </a>
+                                <b id="workers" class="has-text-info">0</b>
+                            </p>
+                        </div>
+                        <div class="column is-half-tablet is-one-third-desktop">
+                            <p class="subtitle">
+                                <i class="fa fa-fw fa-user"></i>
+                                Users:
+                                <b id="users" class="has-text-info">0</b>
+                            </p>
+                        </div>
+                        <div class="column is-half-tablet is-one-third-desktop">
+                            <p class="subtitle">
+                                <i class="fa fa-fw fa-tachometer-alt"></i>
+                                Hashrate:
+                                <b id="hashrate" class="has-text-warning">0 H/s</b>
                             </p>
                         </div>
                     </div>
-                    <p class="subtitle has-text-centered">
-                        ~ More data will be added here when Bila adds more api stuff ~
+                    <div class="columns has-text-centered is-multiline status-row">
+                        <div class="column is-half-tablet is-one-quarter-desktop">
+                            <p class="subtitle is-size-6">
+                                <i class="fa fa-fw fa-clock"></i>
+                                Uptime:
+                                <b id="uptime" class="has-text-info">-</b>
+                            </p>
+                        </div>
+                        <div class="column is-half-tablet is-one-quarter-desktop">
+                            <p class="subtitle is-size-6">
+                                <i class="fa fa-fw fa-check-circle"></i>
+                                Accept rate:
+                                <b id="accept-rate" class="has-text-success">-</b>
+                            </p>
+                        </div>
+                        <div class="column is-half-tablet is-one-quarter-desktop">
+                            <p class="subtitle is-size-6">
+                                <i class="fa fa-fw fa-sync"></i>
+                                Last sync:
+                                <b id="last-sync" class="has-text-info">-</b>
+                            </p>
+                        </div>
+                        <div class="column is-half-tablet is-one-quarter-desktop">
+                            <p class="subtitle is-size-6">
+                                <i class="fa fa-fw fa-hashtag"></i>
+                                Sync #:
+                                <b id="sync-count" class="has-text-info">0</b>
+                            </p>
+                        </div>
+                    </div>
+                    <p class="subtitle has-text-centered is-size-7">
+                        <a href="/workers">workers.json</a> ·
+                        <a href="/rewards">rewards.json</a> ·
+                        <a href="/ping">ping</a>
+                        · <span id="last-updated" class="has-text-grey-light">Updating...</span>
                     </p>
+                    <p id="stats-error" class="has-text-danger has-text-centered is-hidden"></p>
                 </div>
+
                 <div class="box">
                     <p class="title">
-                        <i class="fa fa-fw fa-book"></i>
+                        <i class="fa fa-fw fa-chart-line"></i>
                         History
                     </p>
-                    <p class="subtitle">
-                        Pulse pool (also named Kolka pool) is the first <b>Duino-Coin</b> mining node created by <b>Bilaboz</b> from the Duino team.<br>
-                        It was launched at <b>6/07/2021</b> and helps in off-loading the master server from PC and ESP miners.
+                    <div class="columns">
+                        <div class="column">
+                            <p class="subtitle is-size-6 has-text-centered">Connections</p>
+                            <div class="chart-container">
+                                <canvas id="connections-chart"></canvas>
+                            </div>
+                        </div>
+                        <div class="column">
+                            <p class="subtitle is-size-6 has-text-centered">Hashrate</p>
+                            <div class="chart-container">
+                                <canvas id="hashrate-chart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="box">
+                    <p class="title">
+                        <i class="fa fa-fw fa-list"></i>
+                        Workers
                     </p>
+                    <div class="workers-toolbar">
+                        <div class="field">
+                            <p class="control has-icons-left">
+                                <input class="input" type="search" id="worker-search" placeholder="Search user, miner, or rig...">
+                                <span class="icon is-left"><i class="fa fa-search"></i></span>
+                            </p>
+                        </div>
+                        <div class="field">
+                            <div class="select">
+                                <select id="worker-sort">
+                                    <option value="hashrate:desc">Hashrate (high to low)</option>
+                                    <option value="hashrate:asc">Hashrate (low to high)</option>
+                                    <option value="username:asc">Username (A-Z)</option>
+                                    <option value="username:desc">Username (Z-A)</option>
+                                    <option value="accepted:desc">Most accepted</option>
+                                    <option value="rejected:desc">Most rejected</option>
+                                </select>
+                            </div>
+                        </div>
+                        <p class="subtitle is-size-6 workers-count" id="workers-count">Showing 0 of 0</p>
+                    </div>
+                    <div class="table-container">
+                        <table class="table is-fullwidth is-striped is-hoverable">
+                            <thead>
+                                <tr>
+                                    <th>User</th>
+                                    <th>Hashrate</th>
+                                    <th>Miner</th>
+                                    <th>Rig</th>
+                                    <th>Diff</th>
+                                    <th>Ping</th>
+                                    <th>OK</th>
+                                    <th>Bad</th>
+                                </tr>
+                            </thead>
+                            <tbody id="workers-table"></tbody>
+                        </table>
+                    </div>
+                    <p id="workers-error" class="has-text-danger has-text-centered is-hidden"></p>
                 </div>
             </div>
         </div>
     </section>
-    <br><br>
-    <br><br>
-    <br><br>
-    <br><br>
-    <br><br>
-    <br><br>
-    <br><br>
     <footer>
         <div class="content has-text-centered">
             <p>
-                Designed by <b>revox</b> from Duino team 2021<br>
-                Made with <a href="https://bulma.io"><b>Bulma</b></a>
+                Duino-Coin pool dashboard ·
+                <a href="https://duinocoin.com"><b>duinocoin.com</b></a>
             </p>
         </div>
     </footer>

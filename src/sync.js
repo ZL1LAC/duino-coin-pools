@@ -10,6 +10,7 @@ const osu = require("node-os-utils");
 
 const dns = require("dns");
 const log = require("./logging");
+const poolStats = require("./poolStats");
 const FormData = require("form-data");
 const {
     poolID,
@@ -192,7 +193,6 @@ const logout = () => {
 const sync = async () => {
     const mining = require("./mining");
     const blockIncrease = mining.stats.globalShares.increase;
-    require("./index");
 
     if (sync_count > 0 && sync_count % 25 == 0) {
         if (use_ngrok) {
@@ -207,6 +207,9 @@ const sync = async () => {
     const cpuUsage = await osu.cpu.usage();
     let ramUsage = await osu.mem.info();
     ramUsage = 100 - ramUsage.freeMemPercentage;
+    poolStats.cpu = cpuUsage;
+    poolStats.ram = ramUsage;
+    poolStats.connections = connections;
 
     mining.stats.globalShares.increase = 0;
     const syncData = {
@@ -262,6 +265,15 @@ const sync = async () => {
                         delete mining.stats.balancesToUpdate[k];
                     });
                     globalBlocks = [];
+                    poolStats.syncCount = sync_count;
+                    poolStats.lastSyncAt = Date.now();
+                    const workerList = Object.values(mining.stats.minersStats);
+                    poolStats.pushHistory({
+                        t: poolStats.lastSyncAt,
+                        connections: poolStats.connections,
+                        hashrate: workerList.reduce((sum, w) => sum + (w.h || 0), 0),
+                        workers: workerList.length,
+                    });
                     log.success(`Successfull sync #${sync_count}`);
                 } else {
                     log.warning(

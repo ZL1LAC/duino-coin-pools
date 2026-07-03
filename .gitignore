@@ -1,3 +1,5 @@
 duinocoin/
 node_modules/
 config/
+dashboard/rewards*.json
+dashboard/workers_*.json
