@@ -112,6 +112,7 @@
                     <p class="subtitle has-text-centered is-size-7">
                         <a href="/workers">workers.json</a> ·
                         <a href="/rewards">rewards.json</a> ·
+                        <a href="/history">history.json</a> ·
                         <a href="/ping">ping</a>
                         · <span id="last-updated" class="has-text-grey-light">Updating...</span>
                     </p>
@@ -123,17 +124,30 @@
                         <i class="fa fa-fw fa-chart-line"></i>
                         History
                     </p>
-                    <div class="columns">
-                        <div class="column">
+                    <p class="subtitle is-size-7 has-text-centered has-text-grey-light" id="history-range"></p>
+                    <div class="history-grid">
+                        <div class="chart-box">
                             <p class="subtitle is-size-6 has-text-centered">Connections</p>
                             <div class="chart-container">
                                 <canvas id="connections-chart"></canvas>
                             </div>
                         </div>
-                        <div class="column">
+                        <div class="chart-box">
                             <p class="subtitle is-size-6 has-text-centered">Hashrate</p>
                             <div class="chart-container">
                                 <canvas id="hashrate-chart"></canvas>
+                            </div>
+                        </div>
+                        <div class="chart-box">
+                            <p class="subtitle is-size-6 has-text-centered">Workers</p>
+                            <div class="chart-container">
+                                <canvas id="workers-chart"></canvas>
+                            </div>
+                        </div>
+                        <div class="chart-box">
+                            <p class="subtitle is-size-6 has-text-centered">CPU / RAM</p>
+                            <div class="chart-container">
+                                <canvas id="system-chart"></canvas>
                             </div>
                         </div>
                     </div>

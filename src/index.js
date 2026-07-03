@@ -10,8 +10,25 @@ const sync = require("./sync");
 const { spawn } = require("child_process");
 const log = require("./logging");
 const poolStats = require("./poolStats");
-let { use_ngrok, port, host, autoRestart, guessPort, use_serveo } = require("../config/config.json");
+let {
+    use_ngrok,
+    port,
+    host,
+    autoRestart,
+    guessPort,
+    use_serveo,
+    base_sync_folder,
+    poolName,
+    historyMaxPoints,
+    historyMaxAgeHours,
+} = require("../config/config.json");
 
+poolStats.initHistory(
+    base_sync_folder || `${__dirname}/../dashboard/`,
+    poolName || "pool",
+    historyMaxPoints,
+    historyMaxAgeHours
+);
 poolStats.startedAt = Date.now();
 connections = 0;
 

@@ -12,7 +12,23 @@
 
 .chart-container {
     position: relative;
-    height: 200px;
+    height: 180px;
+}
+
+.history-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+}
+
+.chart-box {
+    min-width: 0;
+}
+
+@media screen and (max-width: 768px) {
+    .history-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 .workers-toolbar {

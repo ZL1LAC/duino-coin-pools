@@ -273,6 +273,8 @@ const sync = async () => {
                         connections: poolStats.connections,
                         hashrate: workerList.reduce((sum, w) => sum + (w.h || 0), 0),
                         workers: workerList.length,
+                        cpu: cpuUsage,
+                        ram: ramUsage,
                     });
                     log.success(`Successfull sync #${sync_count}`);
                 } else {

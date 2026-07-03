@@ -7,6 +7,7 @@ const path = require("path");
 const express = require("express");
 const log = require("./logging");
 const poolStats = require("./poolStats");
+const { getHistoryMeta } = poolStats;
 const mining = require("./mining");
 const {
     dashboard_port,
@@ -60,6 +61,14 @@ app.get("/statistics", (req, res) => {
         acceptedShares,
         rejectedShares,
         history: poolStats.history,
+        historyMeta: getHistoryMeta(),
+    });
+});
+
+app.get("/history", (req, res) => {
+    res.json({
+        meta: getHistoryMeta(),
+        points: poolStats.history,
     });
 });
 

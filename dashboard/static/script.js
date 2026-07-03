@@ -12,6 +12,7 @@ const acceptRateEl = document.getElementById("accept-rate");
 const lastSyncEl = document.getElementById("last-sync");
 const syncCountEl = document.getElementById("sync-count");
 const lastUpdatedEl = document.getElementById("last-updated");
+const historyRangeEl = document.getElementById("history-range");
 const statsErrorEl = document.getElementById("stats-error");
 const workersErrorEl = document.getElementById("workers-error");
 const workersCountEl = document.getElementById("workers-count");
@@ -20,25 +21,9 @@ const workerSort = document.getElementById("worker-sort");
 
 let connectionsChart = null;
 let hashrateChart = null;
+let workersChart = null;
+let systemChart = null;
 let searchTimeout = null;
-
-const chartDefaults = {
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: false,
-    scales: {
-        x: {
-            ticks: { maxTicksLimit: 6, color: "#b5b5b5" },
-            grid: { color: "rgba(255,255,255,0.08)" },
-        },
-        y: {
-            beginAtZero: true,
-            ticks: { color: "#b5b5b5" },
-            grid: { color: "rgba(255,255,255,0.08)" },
-        },
-    },
-    plugins: { legend: { display: false } },
-};
 
 function formatHashrate(h) {
     if (h >= 1e6) return (h / 1e6).toFixed(2) + " MH/s";
@@ -60,6 +45,60 @@ function formatTime(ts) {
     return new Date(ts).toLocaleTimeString();
 }
 
+function formatSpan(hours) {
+    if (hours < 1) return `${Math.round(hours * 60)}m`;
+    if (hours < 24) {
+        const h = Math.floor(hours);
+        const m = Math.round((hours - h) * 60);
+        return m > 0 ? `${h}h ${m}m` : `${h}h`;
+    }
+    const d = Math.floor(hours / 24);
+    const h = Math.round(hours % 24);
+    return h > 0 ? `${d}d ${h}h` : `${d}d`;
+}
+
+function historyLabels(history, meta) {
+    const showDate = meta && meta.spanHours >= 24;
+    return history.map((p) => {
+        const d = new Date(p.t);
+        return showDate
+            ? d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+            : d.toLocaleTimeString();
+    });
+}
+
+function chartOptions(extraY) {
+    return {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: { mode: "index", intersect: false },
+        scales: {
+            x: {
+                ticks: { maxTicksLimit: 6, color: "#b5b5b5", maxRotation: 0 },
+                grid: { color: "rgba(255,255,255,0.08)" },
+            },
+            y: {
+                beginAtZero: true,
+                ticks: { color: "#b5b5b5", ...extraY },
+                grid: { color: "rgba(255,255,255,0.08)" },
+            },
+        },
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                callbacks: {
+                    title: (items) => {
+                        if (!items.length) return "";
+                        const idx = items[0].dataIndex;
+                        return new Date(items[0].chart.data.timestamps[idx]).toLocaleString();
+                    },
+                },
+            },
+        },
+    };
+}
+
 function setCell(row, text) {
     const td = document.createElement("td");
     td.textContent = text;
@@ -67,47 +106,61 @@ function setCell(row, text) {
 }
 
 function initCharts() {
-    const connCtx = document.getElementById("connections-chart");
-    const hrCtx = document.getElementById("hashrate-chart");
-
-    connectionsChart = new Chart(connCtx, {
+    connectionsChart = new Chart(document.getElementById("connections-chart"), {
         type: "line",
-        data: {
-            labels: [],
-            datasets: [{
-                data: [],
-                borderColor: "#ffb86c",
-                backgroundColor: "rgba(255,184,108,0.1)",
-                fill: true,
-                tension: 0.3,
-                pointRadius: 0,
-            }],
-        },
-        options: chartDefaults,
+        data: { labels: [], timestamps: [], datasets: [{
+            data: [], borderColor: "#ffb86c", backgroundColor: "rgba(255,184,108,0.1)",
+            fill: true, tension: 0.3, pointRadius: 0,
+        }]},
+        options: chartOptions(),
     });
 
-    hashrateChart = new Chart(hrCtx, {
+    hashrateChart = new Chart(document.getElementById("hashrate-chart"), {
         type: "line",
-        data: {
-            labels: [],
-            datasets: [{
-                data: [],
-                borderColor: "#8be9fd",
-                backgroundColor: "rgba(139,233,253,0.1)",
-                fill: true,
-                tension: 0.3,
-                pointRadius: 0,
-            }],
-        },
+        data: { labels: [], timestamps: [], datasets: [{
+            data: [], borderColor: "#8be9fd", backgroundColor: "rgba(139,233,253,0.1)",
+            fill: true, tension: 0.3, pointRadius: 0,
+        }]},
+        options: chartOptions({
+            callback: (v) => formatHashrate(v),
+        }),
+    });
+
+    workersChart = new Chart(document.getElementById("workers-chart"), {
+        type: "line",
+        data: { labels: [], timestamps: [], datasets: [{
+            data: [], borderColor: "#50fa7b", backgroundColor: "rgba(80,250,123,0.1)",
+            fill: true, tension: 0.3, pointRadius: 0,
+        }]},
+        options: chartOptions(),
+    });
+
+    systemChart = new Chart(document.getElementById("system-chart"), {
+        type: "line",
+        data: { labels: [], timestamps: [], datasets: [
+            {
+                label: "CPU",
+                data: [], borderColor: "#ff79c6", backgroundColor: "rgba(255,121,198,0.05)",
+                fill: true, tension: 0.3, pointRadius: 0,
+            },
+            {
+                label: "RAM",
+                data: [], borderColor: "#bd93f9", backgroundColor: "rgba(189,147,249,0.05)",
+                fill: true, tension: 0.3, pointRadius: 0,
+            },
+        ]},
         options: {
-            ...chartDefaults,
-            scales: {
-                ...chartDefaults.scales,
-                y: {
-                    ...chartDefaults.scales.y,
-                    ticks: {
-                        color: "#b5b5b5",
-                        callback: (v) => formatHashrate(v),
+            ...chartOptions({ callback: (v) => v + "%" }),
+            plugins: {
+                legend: { display: true, labels: { color: "#b5b5b5", boxWidth: 12 } },
+                tooltip: {
+                    callbacks: {
+                        title: (items) => {
+                            if (!items.length) return "";
+                            const idx = items[0].dataIndex;
+                            return new Date(items[0].chart.data.timestamps[idx]).toLocaleString();
+                        },
+                        label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%`,
                     },
                 },
             },
@@ -115,20 +168,33 @@ function initCharts() {
     });
 }
 
-function updateCharts(history) {
-    if (!connectionsChart || !hashrateChart || !history) return;
+function updateChart(chart, history, meta, valueFn) {
+    chart.data.labels = historyLabels(history, meta);
+    chart.data.timestamps = history.map((p) => p.t);
+    chart.data.datasets[0].data = history.map(valueFn);
+    chart.update();
+}
 
-    const labels = history.map((p) => new Date(p.t).toLocaleTimeString());
-    const connData = history.map((p) => p.connections);
-    const hrData = history.map((p) => p.hashrate);
+function updateCharts(history, meta) {
+    if (!history || !history.length) return;
 
-    connectionsChart.data.labels = labels;
-    connectionsChart.data.datasets[0].data = connData;
-    connectionsChart.update();
+    updateChart(connectionsChart, history, meta, (p) => p.connections);
+    updateChart(hashrateChart, history, meta, (p) => p.hashrate);
+    updateChart(workersChart, history, meta, (p) => p.workers);
 
-    hashrateChart.data.labels = labels;
-    hashrateChart.data.datasets[0].data = hrData;
-    hashrateChart.update();
+    systemChart.data.labels = historyLabels(history, meta);
+    systemChart.data.timestamps = history.map((p) => p.t);
+    systemChart.data.datasets[0].data = history.map((p) => p.cpu != null ? p.cpu : null);
+    systemChart.data.datasets[1].data = history.map((p) => p.ram != null ? p.ram : null);
+    systemChart.update();
+}
+
+function updateHistoryRange(meta) {
+    if (!meta || !meta.points) {
+        historyRangeEl.textContent = "No history yet";
+        return;
+    }
+    historyRangeEl.textContent = `Last ${formatSpan(meta.spanHours)} · ${meta.points} points`;
 }
 
 function fetch_statistics() {
@@ -153,7 +219,8 @@ function fetch_statistics() {
             if (data.poolName) poolName.textContent = data.poolName;
             if (data.motd) poolMotdText.textContent = data.motd;
 
-            updateCharts(data.history);
+            updateCharts(data.history, data.historyMeta);
+            updateHistoryRange(data.historyMeta);
             lastUpdatedEl.textContent = "Updated " + new Date().toLocaleTimeString();
         })
         .catch((err) => {
