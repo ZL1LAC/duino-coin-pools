@@ -56,11 +56,21 @@ const checkWorkers = (ipWorkers, usrWorkers, serverMiners, username) => {
 };
 
 const receiveData = (conn) => {
-    return new Promise((resolve) => {
-        conn.on("data", function listener(data) {
-            conn.removeListener("data", listener);
+    return new Promise((resolve, reject) => {
+        if (!conn.once) {
+            reject(new Error("Connection closed"));
+            return;
+        }
+        const timeout = setTimeout(() => {
+            reject(new Error("Data receive timeout"));
+        }, 30000);
+
+        conn.once("data", function listener(data) {
+            clearTimeout(timeout);
             resolve(data.trim());
         });
+    }).catch((err) => {
+        throw err;
     });
 };
 
@@ -109,6 +119,8 @@ const miningHandler = async (conn, data, mainListener, usingAVR) => {
 
     // remove the main listener to not re-trigger miningHandler()
     conn.removeListener("data", mainListener);
+
+    try {
     while (true) {
         conn.reject_shares = false;
         conn.donate = false;
@@ -436,6 +448,9 @@ const miningHandler = async (conn, data, mainListener, usingAVR) => {
         }
 
         isFirstShare = false;
+    }
+    } catch (err) {
+        log.warning(`Mining session ended for ${conn.username}: ${err.message}`);
     }
 };
 

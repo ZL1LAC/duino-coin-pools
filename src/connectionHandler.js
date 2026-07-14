@@ -41,6 +41,7 @@ const ban_ip = (ip) => {
 
 const handle = (conn) => {
     conn.id = crypto.randomBytes(8).toString("hex");
+    conn.setMaxListeners(10);
     try {
         conn.setTimeout(30 * 1000);
         conn.setEncoding("ascii");
