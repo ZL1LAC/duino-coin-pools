@@ -1,51 +1,83 @@
-const connections = document.getElementById("connections");
-const cpu = document.getElementById("cpu");
-const ram = document.getElementById("ram");
-const workers = document.getElementById("workers");
-const users = document.getElementById("users");
-const hashrate = document.getElementById("hashrate");
-const poolName = document.getElementById("pool-name");
-const poolMotdText = document.getElementById("pool-motd-text");
-const workersTable = document.getElementById("workers-table");
-const uptimeEl = document.getElementById("uptime");
-const acceptRateEl = document.getElementById("accept-rate");
-const lastSyncEl = document.getElementById("last-sync");
-const syncCountEl = document.getElementById("sync-count");
-const lastUpdatedEl = document.getElementById("last-updated");
-const historyRangeEl = document.getElementById("history-range");
-const statsErrorEl = document.getElementById("stats-error");
-const workersErrorEl = document.getElementById("workers-error");
-const workersCountEl = document.getElementById("workers-count");
-const workerSearch = document.getElementById("worker-search");
-const workerSort = document.getElementById("worker-sort");
+/* Pool dashboard frontend — self-hosted, no CDN dependencies.
+   Data comes from /statistics, /workers and /rewards; search, sort and
+   the leaderboard are computed client-side from one workers fetch. */
 
-let connectionsChart = null;
-let hashrateChart = null;
-let workersChart = null;
-let systemChart = null;
-let searchTimeout = null;
+const $ = (id) => document.getElementById(id);
+
+const els = {
+    statusDot: $("status-dot"),
+    poolName: $("pool-name"),
+    poolMotd: $("pool-motd"),
+    poolPort: $("pool-port"),
+    uptime: $("uptime"),
+    hashrate: $("hashrate"),
+    hashrateSub: $("hashrate-sub"),
+    connections: $("connections"),
+    workers: $("workers"),
+    users: $("users"),
+    acceptRate: $("accept-rate"),
+    sharesSub: $("shares-sub"),
+    cpu: $("cpu"),
+    ram: $("ram"),
+    historyRange: $("history-range"),
+    syncInfo: $("sync-info"),
+    lastUpdated: $("last-updated"),
+    statsError: $("stats-error"),
+    workersError: $("workers-error"),
+    workersCount: $("workers-count"),
+    workersTable: $("workers-table"),
+    workerSearch: $("worker-search"),
+    workerSort: $("worker-sort"),
+    leaderboard: $("leaderboard-table"),
+    rewardsSummary: $("rewards-summary"),
+};
+
+const RENDER_CAP = 400;
+const LEADERBOARD_SIZE = 10;
+
+const state = {
+    history: [],
+    historyMeta: null,
+    rangeMs: null,
+    workers: [],
+    rewards: {},
+    searchTimeout: null,
+};
+
+const charts = { hashrate: null, conn: null, system: null };
+
+/* ---------- formatting ---------- */
 
 function formatHashrate(h) {
+    if (h >= 1e9) return (h / 1e9).toFixed(2) + " GH/s";
     if (h >= 1e6) return (h / 1e6).toFixed(2) + " MH/s";
     if (h >= 1e3) return (h / 1e3).toFixed(1) + " kH/s";
     return Math.round(h) + " H/s";
+}
+
+function formatCount(n) {
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
+    return String(n);
+}
+
+function formatDuco(v) {
+    if (v >= 1) return v.toFixed(2);
+    if (v >= 0.001) return v.toFixed(4);
+    return v.toFixed(6);
 }
 
 function formatUptime(seconds) {
     const d = Math.floor(seconds / 86400);
     const h = Math.floor((seconds % 86400) / 3600);
     const m = Math.floor((seconds % 3600) / 60);
-    if (d > 0) return `${d}d ${h}h ${m}m`;
+    if (d > 0) return `${d}d ${h}h`;
     if (h > 0) return `${h}h ${m}m`;
-    return `${m}m ${seconds % 60}s`;
+    return `${m}m`;
 }
 
-function formatTime(ts) {
-    if (!ts) return "-";
-    return new Date(ts).toLocaleTimeString();
-}
-
-function formatSpan(hours) {
+function formatSpan(ms) {
+    const hours = ms / 3.6e6;
     if (hours < 1) return `${Math.round(hours * 60)}m`;
     if (hours < 24) {
         const h = Math.floor(hours);
@@ -57,110 +89,114 @@ function formatSpan(hours) {
     return h > 0 ? `${d}d ${h}h` : `${d}d`;
 }
 
-function historyLabels(history, meta) {
-    const showDate = meta && meta.spanHours >= 24;
-    return history.map((p) => {
-        const d = new Date(p.t);
-        return showDate
-            ? d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
-            : d.toLocaleTimeString();
-    });
+/* ---------- theme & chart chrome ---------- */
+
+function cssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
-function chartOptions(extraY) {
+function chartChrome() {
     return {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        interaction: { mode: "index", intersect: false },
-        scales: {
-            x: {
-                ticks: { maxTicksLimit: 6, color: "#b5b5b5", maxRotation: 0 },
-                grid: { color: "rgba(255,255,255,0.08)" },
-            },
-            y: {
-                beginAtZero: true,
-                ticks: { color: "#b5b5b5", ...extraY },
-                grid: { color: "rgba(255,255,255,0.08)" },
-            },
-        },
-        plugins: {
-            legend: { display: false },
-            tooltip: {
-                callbacks: {
-                    title: (items) => {
-                        if (!items.length) return "";
-                        const idx = items[0].dataIndex;
-                        return new Date(items[0].chart.data.timestamps[idx]).toLocaleString();
-                    },
-                },
-            },
-        },
+        ink2: cssVar("--ink-2"),
+        muted: cssVar("--muted"),
+        grid: cssVar("--grid"),
+        axis: cssVar("--axis"),
+        surface: cssVar("--surface"),
+        border: cssVar("--border"),
+        page: cssVar("--page"),
     };
 }
 
-function setCell(row, text) {
-    const td = document.createElement("td");
-    td.textContent = text;
-    row.appendChild(td);
-}
+const crosshairPlugin = {
+    id: "crosshair",
+    afterDatasetsDraw(chart) {
+        const active = chart.tooltip && chart.tooltip.getActiveElements();
+        if (!active || !active.length) return;
+        const x = active[0].element.x;
+        const { top, bottom } = chart.chartArea;
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(x, top);
+        ctx.lineTo(x, bottom);
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = cssVar("--axis");
+        ctx.stroke();
+        ctx.restore();
+    },
+};
 
-function initCharts() {
-    connectionsChart = new Chart(document.getElementById("connections-chart"), {
+function makeChart(canvasId, seriesDefs, yTickFormat, yMax) {
+    const c = chartChrome();
+    return new Chart($(canvasId), {
         type: "line",
-        data: { labels: [], timestamps: [], datasets: [{
-            data: [], borderColor: "#ffb86c", backgroundColor: "rgba(255,184,108,0.1)",
-            fill: true, tension: 0.3, pointRadius: 0,
-        }]},
-        options: chartOptions(),
-    });
-
-    hashrateChart = new Chart(document.getElementById("hashrate-chart"), {
-        type: "line",
-        data: { labels: [], timestamps: [], datasets: [{
-            data: [], borderColor: "#8be9fd", backgroundColor: "rgba(139,233,253,0.1)",
-            fill: true, tension: 0.3, pointRadius: 0,
-        }]},
-        options: chartOptions({
-            callback: (v) => formatHashrate(v),
-        }),
-    });
-
-    workersChart = new Chart(document.getElementById("workers-chart"), {
-        type: "line",
-        data: { labels: [], timestamps: [], datasets: [{
-            data: [], borderColor: "#50fa7b", backgroundColor: "rgba(80,250,123,0.1)",
-            fill: true, tension: 0.3, pointRadius: 0,
-        }]},
-        options: chartOptions(),
-    });
-
-    systemChart = new Chart(document.getElementById("system-chart"), {
-        type: "line",
-        data: { labels: [], timestamps: [], datasets: [
-            {
-                label: "CPU",
-                data: [], borderColor: "#ff79c6", backgroundColor: "rgba(255,121,198,0.05)",
-                fill: true, tension: 0.3, pointRadius: 0,
-            },
-            {
-                label: "RAM",
-                data: [], borderColor: "#bd93f9", backgroundColor: "rgba(189,147,249,0.05)",
-                fill: true, tension: 0.3, pointRadius: 0,
-            },
-        ]},
+        plugins: [crosshairPlugin],
+        data: {
+            labels: [],
+            timestamps: [],
+            datasets: seriesDefs.map((s) => ({
+                label: s.label,
+                data: [],
+                borderColor: cssVar(s.colorVar),
+                backgroundColor: cssVar(s.colorVar) + "1a",
+                borderWidth: 2,
+                borderJoinStyle: "round",
+                borderCapStyle: "round",
+                fill: true,
+                tension: 0.3,
+                pointRadius: 0,
+                pointHitRadius: 12,
+                format: s.format,
+            })),
+        },
         options: {
-            ...chartOptions({ callback: (v) => v + "%" }),
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            interaction: { mode: "index", intersect: false },
+            scales: {
+                x: {
+                    ticks: { maxTicksLimit: 5, color: c.muted, maxRotation: 0, font: { size: 11 } },
+                    grid: { display: false },
+                    border: { color: c.axis },
+                },
+                y: {
+                    beginAtZero: true,
+                    max: yMax,
+                    ticks: { maxTicksLimit: 5, color: c.muted, font: { size: 11 }, callback: yTickFormat },
+                    grid: { color: c.grid, lineWidth: 1 },
+                    border: { display: false },
+                },
+            },
             plugins: {
-                legend: { display: true, labels: { color: "#b5b5b5", boxWidth: 12 } },
+                legend: {
+                    display: seriesDefs.length > 1,
+                    labels: { color: c.ink2, boxWidth: 14, boxHeight: 2, font: { size: 11 } },
+                },
                 tooltip: {
+                    backgroundColor: c.surface,
+                    titleColor: c.muted,
+                    bodyColor: cssVar("--ink"),
+                    borderColor: c.axis,
+                    borderWidth: 1,
+                    padding: 10,
+                    boxWidth: 12,
+                    boxHeight: 2,
+                    boxPadding: 4,
                     callbacks: {
-                        title: (items) => {
+                        title(items) {
                             if (!items.length) return "";
-                            const idx = items[0].dataIndex;
-                            return new Date(items[0].chart.data.timestamps[idx]).toLocaleString();
+                            const ts = items[0].chart.data.timestamps;
+                            const t = ts && ts[items[0].dataIndex];
+                            return t ? new Date(t).toLocaleString() : items[0].label || "";
                         },
-                        label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%`,
+                        label(ctx) {
+                            const fmt = ctx.dataset.format || ((v) => v);
+                            const value = ctx.parsed.y == null ? "—" : fmt(ctx.parsed.y);
+                            return seriesDefs.length > 1
+                                ? ` ${value}  ${ctx.dataset.label}`
+                                : ` ${value}`;
+                        },
                     },
                 },
             },
@@ -168,116 +204,306 @@ function initCharts() {
     });
 }
 
-function updateChart(chart, history, meta, valueFn) {
-    chart.data.labels = historyLabels(history, meta);
-    chart.data.timestamps = history.map((p) => p.t);
-    chart.data.datasets[0].data = history.map(valueFn);
-    chart.update();
+function initCharts() {
+    if (typeof Chart === "undefined") return;
+    charts.hashrate = makeChart(
+        "hashrate-chart",
+        [{ label: "Hashrate", colorVar: "--s1", format: formatHashrate }],
+        (v) => formatHashrate(v)
+    );
+    charts.conn = makeChart(
+        "conn-chart",
+        [
+            { label: "Connections", colorVar: "--s2", format: (v) => v.toLocaleString() },
+            { label: "Workers", colorVar: "--s3", format: (v) => v.toLocaleString() },
+        ],
+        (v) => (v >= 1000 ? formatCount(v) : v)
+    );
+    charts.system = makeChart(
+        "system-chart",
+        [
+            { label: "CPU", colorVar: "--s4", format: (v) => v.toFixed(1) + "%" },
+            { label: "RAM", colorVar: "--s5", format: (v) => v.toFixed(1) + "%" },
+        ],
+        (v) => v + "%",
+        100
+    );
 }
 
-function updateCharts(history, meta) {
-    if (!history || !history.length) return;
-
-    updateChart(connectionsChart, history, meta, (p) => p.connections);
-    updateChart(hashrateChart, history, meta, (p) => p.hashrate);
-    updateChart(workersChart, history, meta, (p) => p.workers);
-
-    systemChart.data.labels = historyLabels(history, meta);
-    systemChart.data.timestamps = history.map((p) => p.t);
-    systemChart.data.datasets[0].data = history.map((p) => p.cpu != null ? p.cpu : null);
-    systemChart.data.datasets[1].data = history.map((p) => p.ram != null ? p.ram : null);
-    systemChart.update();
-}
-
-function updateHistoryRange(meta) {
-    if (!meta || !meta.points) {
-        historyRangeEl.textContent = "No history yet";
-        return;
+function destroyCharts() {
+    for (const key of Object.keys(charts)) {
+        if (charts[key]) charts[key].destroy();
+        charts[key] = null;
     }
-    historyRangeEl.textContent = `Last ${formatSpan(meta.spanHours)} · ${meta.points} points`;
 }
 
-function fetch_statistics() {
+function visibleHistory() {
+    if (!state.rangeMs || !state.history.length) return state.history;
+    const cutoff = state.history[state.history.length - 1].t - state.rangeMs;
+    return state.history.filter((p) => p.t >= cutoff);
+}
+
+function historyLabels(points, spanMs) {
+    const showDate = spanMs >= 24 * 3.6e6;
+    return points.map((p) => {
+        const d = new Date(p.t);
+        return showDate
+            ? d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+            : d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    });
+}
+
+function setSeries(chart, points, labels, valueFns) {
+    if (!chart) return;
+    chart.data.labels = labels;
+    chart.data.timestamps = points.map((p) => p.t);
+    valueFns.forEach((fn, i) => {
+        chart.data.datasets[i].data = points.map(fn);
+    });
+    chart.update("none");
+}
+
+function updateCharts() {
+    const points = visibleHistory();
+    if (!points.length) return;
+    const spanMs = points[points.length - 1].t - points[0].t;
+    const labels = historyLabels(points, spanMs);
+
+    setSeries(charts.hashrate, points, labels, [(p) => p.hashrate]);
+    setSeries(charts.conn, points, labels, [(p) => p.connections, (p) => p.workers]);
+    setSeries(charts.system, points, labels, [
+        (p) => (p.cpu != null ? p.cpu : null),
+        (p) => (p.ram != null ? p.ram : null),
+    ]);
+
+    els.historyRange.textContent = `${points.length} points · ${formatSpan(spanMs)}`;
+}
+
+/* ---------- statistics ---------- */
+
+function fetchStatistics() {
     fetch("/statistics")
-        .then((response) => {
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return response.json();
+        .then((r) => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
         })
         .then((data) => {
-            statsErrorEl.classList.add("is-hidden");
-            connections.textContent = data.connections;
-            cpu.textContent = data.cpu.toFixed(1) + "%";
-            ram.textContent = data.ram.toFixed(1) + "%";
-            workers.textContent = data.workers;
-            users.textContent = data.users;
-            hashrate.textContent = formatHashrate(data.hashrate);
-            uptimeEl.textContent = formatUptime(data.uptime || 0);
-            acceptRateEl.textContent = data.acceptRate.toFixed(1) + "%";
-            lastSyncEl.textContent = formatTime(data.lastSyncAt);
-            syncCountEl.textContent = data.syncCount;
+            els.statsError.hidden = true;
+            els.statusDot.classList.remove("is-down");
 
-            if (data.poolName) poolName.textContent = data.poolName;
-            if (data.motd) poolMotdText.textContent = data.motd;
+            if (data.poolName) {
+                els.poolName.textContent = data.poolName;
+                document.title = `${data.poolName} · Pool Dashboard`;
+            }
+            if (data.motd) els.poolMotd.textContent = data.motd;
+            els.poolPort.textContent = `port ${data.poolPort}`;
+            els.uptime.textContent = `up ${formatUptime(data.uptime || 0)}`;
 
-            updateCharts(data.history, data.historyMeta);
-            updateHistoryRange(data.historyMeta);
-            lastUpdatedEl.textContent = "Updated " + new Date().toLocaleTimeString();
+            els.hashrate.textContent = formatHashrate(data.hashrate);
+            els.hashrateSub.textContent =
+                `${data.users} users · ${data.workers.toLocaleString()} workers`;
+            els.connections.textContent = data.connections.toLocaleString();
+            els.workers.textContent = data.workers.toLocaleString();
+            els.users.textContent = data.users.toLocaleString();
+            els.acceptRate.textContent = data.acceptRate.toFixed(2) + "%";
+            els.sharesSub.textContent =
+                `${formatCount(data.acceptedShares)} ok · ${formatCount(data.rejectedShares)} bad`;
+            els.cpu.textContent = data.cpu.toFixed(1) + "%";
+            els.ram.textContent = data.ram.toFixed(1) + "%";
+
+            els.syncInfo.textContent = data.lastSyncAt
+                ? `sync #${data.syncCount} at ${new Date(data.lastSyncAt).toLocaleTimeString()}`
+                : "not synced yet";
+            els.lastUpdated.textContent = "updated " + new Date().toLocaleTimeString();
+
+            state.history = data.history || [];
+            state.historyMeta = data.historyMeta;
+            updateCharts();
         })
         .catch((err) => {
-            statsErrorEl.textContent = "Failed to load statistics: " + err.message;
-            statsErrorEl.classList.remove("is-hidden");
+            els.statsError.textContent = "Failed to load statistics: " + err.message;
+            els.statsError.hidden = false;
+            els.statusDot.classList.add("is-down");
         });
 }
 
-function getWorkerQuery() {
-    const [sort, order] = workerSort.value.split(":");
-    const params = new URLSearchParams({ sort, order });
-    const search = workerSearch.value.trim();
-    if (search) params.set("search", search);
-    return params.toString();
+/* ---------- workers table & leaderboard ---------- */
+
+const SORT_FIELDS = {
+    hashrate: (w) => w.hashrate || 0,
+    username: (w) => (w.username || "").toLowerCase(),
+    accepted: (w) => w.accepted || 0,
+    rejected: (w) => w.rejected || 0,
+};
+
+function td(row, text, className) {
+    const cell = document.createElement("td");
+    cell.textContent = text;
+    if (className) cell.className = className;
+    row.appendChild(cell);
 }
 
-function fetch_workers() {
-    fetch("/workers?" + getWorkerQuery())
-        .then((response) => {
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return response.json();
+function renderWorkers() {
+    const search = els.workerSearch.value.toLowerCase().trim();
+    const [sortKey, order] = els.workerSort.value.split(":");
+    const sortFn = SORT_FIELDS[sortKey] || SORT_FIELDS.hashrate;
+
+    let rows = state.workers;
+    if (search) {
+        rows = rows.filter(
+            (w) =>
+                (w.username && w.username.toLowerCase().includes(search)) ||
+                (w.miner && w.miner.toLowerCase().includes(search)) ||
+                (w.rig && w.rig.toLowerCase().includes(search))
+        );
+    }
+
+    rows = rows.slice().sort((a, b) => {
+        const av = sortFn(a);
+        const bv = sortFn(b);
+        if (av < bv) return order === "asc" ? -1 : 1;
+        if (av > bv) return order === "asc" ? 1 : -1;
+        return 0;
+    });
+
+    const shown = rows.slice(0, RENDER_CAP);
+    const frag = document.createDocumentFragment();
+    for (const w of shown) {
+        const tr = document.createElement("tr");
+        td(tr, w.username || "—", "user");
+        td(tr, formatHashrate(w.hashrate || 0), "num");
+        td(tr, w.miner || "—");
+        td(tr, w.rig || "—");
+        td(tr, w.difficulty != null ? w.difficulty.toLocaleString() : "—", "num");
+        td(tr, w.ping != null ? Math.round(w.ping * 1000) + " ms" : "—", "num");
+        td(tr, (w.accepted || 0).toLocaleString(), "num");
+        td(tr, (w.rejected || 0).toLocaleString(), "num");
+        frag.appendChild(tr);
+    }
+    els.workersTable.replaceChildren(frag);
+
+    els.workersCount.textContent =
+        shown.length < rows.length
+            ? `showing ${shown.length} of ${rows.length.toLocaleString()} — refine search to see more`
+            : `${rows.length.toLocaleString()} worker${rows.length === 1 ? "" : "s"}`;
+}
+
+function renderLeaderboard() {
+    const byUser = new Map();
+    for (const w of state.workers) {
+        if (!w.username) continue;
+        let u = byUser.get(w.username);
+        if (!u) {
+            u = { username: w.username, rigs: 0, hashrate: 0, accepted: 0, rejected: 0 };
+            byUser.set(w.username, u);
+        }
+        u.rigs += 1;
+        u.hashrate += w.hashrate || 0;
+        u.accepted += w.accepted || 0;
+        u.rejected += w.rejected || 0;
+    }
+
+    const top = [...byUser.values()]
+        .sort((a, b) => b.hashrate - a.hashrate)
+        .slice(0, LEADERBOARD_SIZE);
+
+    const frag = document.createDocumentFragment();
+    top.forEach((u, i) => {
+        const tr = document.createElement("tr");
+        tr.dataset.username = u.username;
+        tr.title = `Show ${u.username}'s workers`;
+        const total = u.accepted + u.rejected;
+        const pending = state.rewards[u.username];
+        td(tr, String(i + 1), "num");
+        td(tr, u.username, "user");
+        td(tr, u.rigs.toLocaleString(), "num");
+        td(tr, formatHashrate(u.hashrate), "num");
+        td(tr, total > 0 ? ((u.accepted / total) * 100).toFixed(1) + "%" : "—", "num");
+        td(tr, pending != null ? formatDuco(pending) : "—", "num");
+        frag.appendChild(tr);
+    });
+    els.leaderboard.replaceChildren(frag);
+}
+
+function fetchWorkers() {
+    fetch("/workers")
+        .then((r) => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
         })
         .then((rows) => {
-            workersErrorEl.classList.add("is-hidden");
-            workersTable.innerHTML = "";
-
-            rows.forEach((row) => {
-                const tr = document.createElement("tr");
-                setCell(tr, row.username || "-");
-                setCell(tr, formatHashrate(row.hashrate || 0));
-                setCell(tr, row.miner || "-");
-                setCell(tr, row.rig || "-");
-                setCell(tr, row.difficulty != null ? String(row.difficulty) : "-");
-                setCell(tr, row.ping != null ? row.ping.toFixed(2) + "s" : "-");
-                setCell(tr, String(row.accepted || 0));
-                setCell(tr, String(row.rejected || 0));
-                workersTable.appendChild(tr);
-            });
-
-            workersCountEl.textContent = `Showing ${rows.length} worker${rows.length === 1 ? "" : "s"}`;
+            els.workersError.hidden = true;
+            state.workers = rows;
+            renderWorkers();
+            renderLeaderboard();
         })
         .catch((err) => {
-            workersErrorEl.textContent = "Failed to load workers: " + err.message;
-            workersErrorEl.classList.remove("is-hidden");
+            els.workersError.textContent = "Failed to load workers: " + err.message;
+            els.workersError.hidden = false;
         });
 }
 
-workerSearch.addEventListener("input", () => {
-    clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(fetch_workers, 300);
+function fetchRewards() {
+    fetch("/rewards")
+        .then((r) => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+        })
+        .then((rewards) => {
+            state.rewards = rewards || {};
+            const balances = Object.values(state.rewards).filter((v) => v > 0);
+            const total = balances.reduce((sum, v) => sum + v, 0);
+            els.rewardsSummary.textContent =
+                `${formatDuco(total)} DUCO pending across ${balances.length} users`;
+            renderLeaderboard();
+        })
+        .catch(() => {
+            els.rewardsSummary.textContent = "rewards unavailable";
+        });
+}
+
+/* ---------- events ---------- */
+
+els.workerSearch.addEventListener("input", () => {
+    clearTimeout(state.searchTimeout);
+    state.searchTimeout = setTimeout(renderWorkers, 200);
 });
 
-workerSort.addEventListener("change", fetch_workers);
+els.workerSort.addEventListener("change", renderWorkers);
+
+els.leaderboard.addEventListener("click", (e) => {
+    const tr = e.target.closest("tr[data-username]");
+    if (!tr) return;
+    els.workerSearch.value = tr.dataset.username;
+    renderWorkers();
+    $("workers-card").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+for (const btn of document.querySelectorAll(".range-btn")) {
+    btn.addEventListener("click", () => {
+        document.querySelector(".range-btn.is-selected").classList.remove("is-selected");
+        btn.classList.add("is-selected");
+        state.rangeMs = btn.dataset.range ? Number(btn.dataset.range) : null;
+        updateCharts();
+    });
+}
+
+$("theme-toggle").addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem("theme", next);
+    destroyCharts();
+    initCharts();
+    updateCharts();
+});
+
+/* ---------- boot ---------- */
 
 initCharts();
-fetch_statistics();
-fetch_workers();
+fetchStatistics();
+fetchWorkers();
+fetchRewards();
 
-setInterval(fetch_statistics, 5000);
-setInterval(fetch_workers, 15000);
+setInterval(fetchStatistics, 5000);
+setInterval(fetchWorkers, 15000);
+setInterval(fetchRewards, 60000);
