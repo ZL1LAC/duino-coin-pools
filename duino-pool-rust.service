@@ -1,0 +1,25 @@
+[Unit]
+Description=Duino-Coin Rust mining pool
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=server
+Group=server
+WorkingDirectory=/home/server/duino-coin-pools/supplied-runtime
+ExecStart=/home/server/duino-coin-pools/duco-pool-rs
+# The updater exits cleanly; systemd must start the updated pool.
+Restart=always
+RestartSec=10
+# Let the update helper outlive the pool to replace the executable.
+KillMode=process
+KillSignal=SIGINT
+TimeoutStopSec=120
+MemoryAccounting=yes
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=duino-pool-rust
+
+[Install]
+WantedBy=multi-user.target
